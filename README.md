@@ -30,7 +30,7 @@ openssl req -new -key activemq-client.key -out activemq-client.csr \
 openssl x509 -req -in activemq-client.csr -signkey activemq-client.key \
   -out activemq-client.crt -days 365
 openssl pkcs12 -export -in activemq-client.crt -inkey activemq-client.key \
-  -out activemq-client.p12 -name "activemq-client" -password pass:clientpass
+  -out activemq-client.p12 -name "activemq-client" -password pass:ccccclient
 
 # Create truststore with server certificate
 keytool -import -file activemq-server.crt -keystore truststore.jks \
@@ -39,7 +39,7 @@ keytool -import -file activemq-server.crt -keystore truststore.jks \
 # Create truststore in PKCS#12 format
 keytool -importkeystore -srckeystore truststore.jks -srcstoretype JKS \
   -destkeystore truststore.p12 -deststoretype PKCS12 \
-  -srcstorepass trustpass -deststorepass trustpass
+  -srcstorepass trustpass -deststorepass cccctrust
 ```
 
 ## 2. ActiveMQ SSL Configuration
