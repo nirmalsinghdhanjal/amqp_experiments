@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Document xmlns="urn:iso:std:iso:20022:tech:xsd:pain.001.001.03">
+  <CstmrCdtTrfInitn>
+    <GrpHdr>
+      <MsgId>MSG-{MESSAGE_ID}</MsgId>
+      <CreDtTm>2024-01-15T10:30:00</CreDtTm>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>2500.75</CtrlSum>
+      <InitgPty>
+        <Nm>ABC Corporation</Nm>
+        <Id>
+          <OrgId>
+            <Othr>
+              <Id>ABC{THREAD_ID}</Id>
+              <SchmeNm>
+                <Cd>CUST</Cd>
+              </SchmeNm>
+            </Othr>
+          </OrgId>
+        </Id>
+      </InitgPty>
+    </GrpHdr>
+    <PmtInf>
+      <PmtInfId>PMT-{MESSAGE_ID}</PmtInfId>
+      <PmtMtd>TRF</PmtMtd>
+      <BtchBookg>true</BtchBookg>
+      <NbOfTxs>1</NbOfTxs>
+      <CtrlSum>2500.75</CtrlSum>
+      <PmtTpInf>
+        <SvcLvl>
+          <Cd>SEPA</Cd>
+        </SvcLvl>
+        <LclInstrm>
+          <Cd>INST</Cd>
+        </LclInstrm>
+        <CtgyPurp>
+          <Cd>SUPP</Cd>
+        </CtgyPurp>
+      </PmtTpInf>
+      <ReqdExctnDt>2024-01-16</ReqdExctnDt>
+      <Dbtr>
+        <Nm>ABC Corporation</Nm>
+        <PstlAdr>
+          <StrtNm>123 Business Avenue</StrtNm>
+          <PstCd>10115</PstCd>
+          <TwnNm>Berlin</TwnNm>
+          <Ctry>DE</Ctry>
+        </PstlAdr>
+        <Id>
+          <OrgId>
+            <Othr>
+              <Id>ABC-CORP-001</Id>
+            </Othr>
+          </OrgId>
+        </Id>
+      </Dbtr>
+      <DbtrAcct>
+        <Id>
+          <IBAN>DE89370400440532013000</IBAN>
+        </Id>
+        <Ccy>EUR</Ccy>
+      </DbtrAcct>
+      <DbtrAgt>
+        <FinInstnId>
+          <BIC>DEUTDEFF</BIC>
+          <Nm>Deutsche Bank AG</Nm>
+        </FinInstnId>
+      </DbtrAgt>
+      <ChrgBr>SLEV</ChrgBr>
+      <CdtTrfTxInf>
+        <PmtId>
+          <InstrId>INSTR-{MESSAGE_ID}</InstrId>
+          <EndToEndId>E2E-{MESSAGE_ID}</EndToEndId>
+        </PmtId>
+        <PmtTpInf>
+          <CtgyPurp>
+            <Cd>SUPP</Cd>
+          </CtgyPurp>
+        </PmtTpInf>
+        <Amt>
+          <InstdAmt Ccy="EUR">2500.75</InstdAmt>
+        </Amt>
+        <Cdtr>
+          <Nm>XYZ Supplier Ltd</Nm>
+          <PstlAdr>
+            <StrtNm>456 Supply Street</StrtNm>
+            <PstCd>80331</PstCd>
+            <TwnNm>Munich</TwnNm>
+            <Ctry>DE</Ctry>
+          </PstlAdr>
+          <Id>
+            <OrgId>
+              <Othr>
+                <Id>XYZ-SUPPLIER-001</Id>
+              </Othr>
+            </OrgId>
+          </Id>
+        </Cdtr>
+        <CdtrAcct>
+          <Id>
+            <IBAN>DE89370400440532013001</IBAN>
+          </Id>
+          <Ccy>EUR</Ccy>
+        </CdtrAcct>
+        <CdtrAgt>
+          <FinInstnId>
+            <BIC>COBADEFF</BIC>
+            <Nm>Commerzbank AG</Nm>
+          </FinInstnId>
+        </CdtrAgt>
+        <Purp>
+          <Cd>SUPP</Cd>
+        </Purp>
+        <RmtInf>
+          <Ustrd>Payment for Invoice INV-{MESSAGE_ID} - Load Test Transaction {DATE} {TIMESTAMP}</Ustrd>
+        </RmtInf>
+      </CdtTrfTxInf>
+    </PmtInf>
+  </CstmrCdtTrfInitn>
+</Document>
