@@ -69,11 +69,15 @@ keytool -importkeystore -srckeystore truststore.jks -srcstoretype JKS \
 # For the DB
 
 CREATE TABLE
+
 postgres=# CREATE DATABASE amqps_performance;
 CREATE DATABASE
+
 postgres=# CREATE USER amqps_user WITH PASSWORD 'xx';
 CREATE ROLE
+
 postgres=# GRANT ALL PRIVILEGES ON DATABASE amqps_performance TO amqps_user;
 GRANT
+
 postgres=# \q
 Nirmals-MacBook-Pro:postgresql@14 nirmalsingh$ PGPASSWORD='xx' psql -h localhost -p 5432 -U amqps_user -d amqps_performance -f /Users/nirmalsingh/Documents/work/ASX/database/create_amqps_db.sql
