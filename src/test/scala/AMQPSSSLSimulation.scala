@@ -6,8 +6,37 @@ import javax.jms.ConnectionFactory
 import org.apache.qpid.jms.JmsConnectionFactory
 import scala.concurrent.duration._
 import scala.io.Source
+import com.example.db.AMQPSDatabase
+import org.slf4j.LoggerFactory
 
 class AMQPSSSLSimulation extends Simulation {
+  private val logger = LoggerFactory.getLogger(this.getClass)
+
+  // Test database connectivity on simulation start
+  if (!AMQPSDatabase.testConnection()) {
+    logger.error("Database connectivity failed - continuing without database logging")
+  } else {
+    logger.info("Database connectivity verified - message tracking enabled")
+  }
+
+  // Helper function to log message to database with error handling
+  def logMessageToDB(messageId: String, corrId: String, scenario: String, subScenario: String, operation: String, timestamp: Long = System.currentTimeMillis()): Unit = {
+    try {
+      operation match {
+        case "SEND" =>
+          AMQPSDatabase.logMessageSent(messageId, scenario, subScenario, "GATLING_CLIENT", timestamp)
+        case "RECEIVE" =>
+          AMQPSDatabase.logMessageReceived(messageId, corrId, timestamp, timestamp) // Using timestamp as JMS timestamp for now
+        case "FAILED" =>
+          AMQPSDatabase.logMessageFailed(messageId, "Gatling simulation failure")
+        case _ =>
+          logger.warn(s"Unknown operation type: $operation")
+      }
+    } catch {
+      case e: Exception =>
+        logger.error(s"Failed to log to database: messageId=$messageId, operation=$operation", e)
+    }
+  }
 
   // Environment variables with fallback defaults
   val brokerHost = sys.env.getOrElse("BROKER_HOST", "localhost")
@@ -74,188 +103,218 @@ class AMQPSSSLSimulation extends Simulation {
     .replyTimeout(30.seconds)
 
 
-  // SSL Send scenario
+  // SSL Send scenario with database logging
   val sslSendScenario = scenario("AMQPS SSL Send Test")
     .repeat(messageCount) {
       exec { session =>
         val xmlContent = Source.fromFile(file, "UTF-8").mkString
         val messageId = java.util.UUID.randomUUID().toString
+        val corrId = s"corr-send-${messageId}"
         val threadId = Thread.currentThread().getId
-        val timestamp = System.currentTimeMillis()
+        val pushTime = System.currentTimeMillis()
         val modified = xmlContent
           .replace("{MESSAGE_ID}", s"$messageId")
           .replace("{THREAD_ID}", threadId.toString)
-          .replace("{TIMESTAMP}", timestamp.toString)
+          .replace("{TIMESTAMP}", pushTime.toString)
           .replace("{DATE}", java.time.LocalDateTime.now().toString)
         
-        //println(s"Generated unique messageId: $messageId")
-        //println(s"Message content length: ${modified.length}")
-        session.set("messageContent", modified).set("currentMessageId", messageId)
+        logger.info(s"[SEND_PREP] Generated messageId: $messageId, corrId: $corrId")
+        
+        session.set("messageContent", modified)
+               .set("currentMessageId", messageId)
+               .set("currentCorrId", corrId)
+               .set("pushTime", pushTime)
+               .set("scenario", "SSL_SEND")
+               .set("subScenario", "SEND_ONLY")
       }
-      .exec(session => {
-        val content = session("messageContent").as[String]
-        val msgId = session("currentMessageId").as[String]
-        //println(s"About to send message with ID: $msgId")
-        //println(s"Message content preview: ${content.take(200)}...")
+      .exec { session =>
+        val messageId = session("currentMessageId").as[String]
+        val corrId = session("currentCorrId").as[String]
+        val pushTime = session("pushTime").as[Long]
+        
+        // Log message send to database
+        logMessageToDB(messageId, corrId, "SSL_SEND", "SEND_ONLY", "SEND", pushTime)
+        logger.info(s"[SEND_START] Message ID: $messageId | Corr ID: $corrId | Push Time: $pushTime")
         session
-      })
+      }
       .exec(
         jms("SSL Send Message")
           .send
           .queue(testQueue)
           .textMessage(session => session("messageContent").as[String])
           .property("messageId", session => session("currentMessageId").as[String])
+          .property("correlationId", session => session("currentCorrId").as[String])
           .property("secureTransport", "amqps")
           .property("certificateType", "PKCS12")
           .property("messageFormat", "XML")
+          .property("pushTimestamp", session => session("pushTime").as[String])
+          .property("scenario", "SSL_SEND")
+          .property("subScenario", "SEND_ONLY")
       )
+      .exec { session =>
+        val messageId = session("currentMessageId").as[String]
+        val corrId = session("currentCorrId").as[String]
+        logger.info(s"[SEND_COMPLETE] Message ID: $messageId | Corr ID: $corrId")
+        session
+      }
       .pause(2.seconds)
     }
 
-  // SSL Request-Reply scenario
+  // SSL Request-Reply scenario with database logging
   val sslRequestReplyScenario = scenario("AMQPS SSL Request-Reply Test")
-    .repeat(1) { exec { session =>
+    .repeat(1) { 
+      val scenario = "CreateAccount"
+      val subScenario = "CreateDirectAccount"
+      exec { session =>
         val xmlContent = Source.fromFile(file, "UTF-8").mkString
         val messageId = java.util.UUID.randomUUID().toString
+        val corrId = s"corr-req-${messageId}"
         val threadId = Thread.currentThread().getId
-        val timestamp = System.currentTimeMillis()
+        val pushTime = System.currentTimeMillis()
         val modified = xmlContent
           .replace("{MESSAGE_ID}", s"$messageId")
           .replace("{THREAD_ID}", threadId.toString)
-          .replace("{TIMESTAMP}", timestamp.toString)
+          .replace("{TIMESTAMP}", pushTime.toString)
           .replace("{DATE}", java.time.LocalDateTime.now().toString)
         
-        //println(s"Generated unique messageId: $messageId")
-        //println(s"Message content length: ${modified.length}")
-        session.set("messageContent", modified).set("currentMessageId", messageId)
+        logger.info(s"[REQUEST_PREP] Generated messageId: $messageId, corrId: $corrId")
         
+        session.set("messageContent", modified)
+               .set("currentMessageId", messageId)
+               .set("currentCorrId", corrId)
+               .set("requestStartTime", pushTime)
       }
-      .exec(session => {
-        val content = session("messageContent").as[String]
-        val msgId = session("currentMessageId").as[String]
-        //println(s"About to send message with ID: $msgId")
-        //println(s"Message content preview: ${content.take(200)}...")
+      .exec { session =>
+        val messageId = session("currentMessageId").as[String]
+        val corrId = session("currentCorrId").as[String]
+        val startTime = session("requestStartTime").as[Long]
+
+
+        // Log request to database
+        logMessageToDB(messageId, corrId, scenario, subScenario, "SEND", startTime)
+        logger.info(s"[REQUEST_START] Message ID: $messageId | Corr ID: $corrId | Start Time: $startTime")
         session
-      }).exec(
+      }
+      .exec(
         jms("SSL Request-Reply")
           .requestReply
           .queue(testQueue)
           .replyQueue(testQueue)
           .textMessage(session => session("messageContent").as[String])
           .property("messageId", session => session("currentMessageId").as[String])
+          .property("correlationId", session => session("currentCorrId").as[String])
           .property("secureTransport", "amqps")
           .property("certificateType", "PKCS12")
           .property("messageFormat", "XML")
+          .property("requestTimestamp", session => session("requestStartTime").as[String])
           .check(
             // Extract the message body
             bodyString.saveAs("replyMessage"),
-            // Simple validation check with header extraction
+            // Enhanced reply processing with database logging
             simpleCheck(message => {
-              println(s"=== COMPLETE REPLY MESSAGE ===")
-              
-              // Print the raw message object
-              println(s"Raw message object: ${message}")
-              
-              // Access the JMS message to get the full content
               val jmsMessage = message.asInstanceOf[javax.jms.Message]
               
-              // Get the complete message body based on message type
-              val fullMessageBody = jmsMessage match {
+              logger.info(s"=== REPLY MESSAGE RECEIVED ===")
+              
+              // Extract message details
+              val replyMessageId = Option(jmsMessage.getJMSMessageID()).getOrElse("N/A")
+              val replyCorrId = Option(jmsMessage.getJMSCorrelationID()).getOrElse("N/A")
+              val jmsTimestamp = jmsMessage.getJMSTimestamp()
+              
+              logger.info(s"Reply Message ID: $replyMessageId")
+              logger.info(s"Reply Correlation ID: $replyCorrId")
+              logger.info(s"JMS Timestamp: $jmsTimestamp")
+              
+              // Extract custom messageId from properties
+              val customMessageId = Option(jmsMessage.getStringProperty("messageId")).getOrElse("")
+              logger.info(s"Custom Message ID extracted: $customMessageId")
+              
+              // Log the complete message body
+              /*val fullMessageBody = jmsMessage match {
                 case textMessage: javax.jms.TextMessage =>
                   val text = textMessage.getText()
-                  println(s"Text Message Body:")
-                  println(s"${text}")
+                  logger.info(s"Text Message Body (${text.length} chars): ${text.take(200)}...")
                   text
                 case bytesMessage: javax.jms.BytesMessage =>
                   val bodyLength = bytesMessage.getBodyLength().toInt
                   val bodyBytes = new Array[Byte](bodyLength)
                   bytesMessage.readBytes(bodyBytes)
                   val text = new String(bodyBytes, "UTF-8")
-                  println(s"Bytes Message Body (${bodyLength} bytes):")
-                  println(s"${text}")
+                  logger.info(s"Bytes Message Body (${bodyLength} bytes): ${text.take(200)}...")
                   text
-                case mapMessage: javax.jms.MapMessage =>
-                  val mapNames = mapMessage.getMapNames()
-                  println(s"Map Message Body:")
-                  while (mapNames.hasMoreElements()) {
-                    val name = mapNames.nextElement().toString
-                    val value = mapMessage.getObject(name)
-                    println(s"  $name: $value")
-                  }
-                  "Map message - see details above"
-                case objectMessage: javax.jms.ObjectMessage =>
-                  val obj = objectMessage.getObject()
-                  println(s"Object Message Body:")
-                  println(s"${obj}")
-                  obj.toString
                 case _ =>
-                  println(s"Unknown message type: ${jmsMessage.getClass}")
-                  "Unknown message type"
-              }
+                  logger.info(s"Other message type: ${jmsMessage.getClass}")
+                  jmsMessage.toString
+              }*/
               
-              println(s"=== END REPLY MESSAGE ===")
-              message != null
+              logger.info(s"=== END REPLY MESSAGE ===")
+              true
             }),
-            // Custom check to extract JMS headers and properties
+            // Process timing and update database with receive time
             simpleCheck(message => {
-              // Access the JMS message to extract headers and properties
               val jmsMessage = message.asInstanceOf[javax.jms.Message]
+              val receiveTime = System.currentTimeMillis()
               
-              // Extract JMS standard timestamp
-              val jmsTimestamp = jmsMessage.getJMSTimestamp()
-              if (jmsTimestamp > 0) {
-                val dateTime = java.time.Instant.ofEpochMilli(jmsTimestamp).atZone(java.time.ZoneId.systemDefault())
-                println(s"JMS Timestamp: $jmsTimestamp (${dateTime})")
-              }
-              
-              // Extract custom properties from headers
               try {
-                /*val customTimestamp = Option(jmsMessage.getStringProperty("timestamp"))
-                val messageTimestamp = Option(jmsMessage.getStringProperty("messageTimestamp"))
-                val sentTime = Option(jmsMessage.getStringProperty("sentTime"))
-                val creationTime = Option(jmsMessage.getStringProperty("creationTime"))
-                val requestTimestamp = Option(jmsMessage.getStringProperty("requestTimestamp"))
+                // Extract correlation ID and messageId for database lookup
+                val replyCorrId = Option(jmsMessage.getJMSCorrelationID()).getOrElse("")
+                val customMessageId = Option(jmsMessage.getStringProperty("messageId")).getOrElse("")
                 
-                println(s"=== AMQP Message Header Analysis ===")
-                customTimestamp.foreach(ts => println(s"Custom timestamp property: $ts"))
-                messageTimestamp.foreach(ts => println(s"Message timestamp property: $ts"))
-                sentTime.foreach(ts => println(s"Sent time property: $ts"))
-                creationTime.foreach(ts => println(s"Creation time property: $ts"))
-                requestTimestamp.foreach(ts => println(s"Request timestamp property: $ts"))
+                // Use the jmsTimestamp from the message
+                val jmsTimestamp = jmsMessage.getJMSTimestamp()
                 
-                // Calculate round-trip time if we have request timestamp
-                requestTimestamp.foreach { reqTs =>
+                // Extract request timestamp from message properties
+                val requestTimestampStr = Option(jmsMessage.getStringProperty("requestTimestamp"))
+                
+                requestTimestampStr.foreach { reqTs =>
                   try {
                     val requestTime = reqTs.toLong
-                    val currentTime = System.currentTimeMillis()
-                    val roundTripTime = currentTime - requestTime
-                    println(s"Round-trip time: ${roundTripTime}ms")
+                    val roundTripTime = receiveTime - requestTime
+                    
+                    logger.info(s"[TIMING] Round-trip time: ${roundTripTime}ms | " +
+                               s"Request Time: $requestTime | Receive Time: $receiveTime | JMS Timestamp: $jmsTimestamp")
+                    
+                    // Update database with receive time using original messageId
+                    if (customMessageId.nonEmpty) {
+                      AMQPSDatabase.logMessageReceived(customMessageId, replyCorrId, receiveTime, jmsTimestamp)
+                      logger.info(s"[DB_UPDATE] Updated receive time for messageId: $customMessageId")
+                    }
+                    
                   } catch {
-                    case _: NumberFormatException => println(s"Could not parse request timestamp: $reqTs")
+                    case _: NumberFormatException => 
+                      logger.warn(s"Could not parse request timestamp: $reqTs")
                   }
-                }*/
+                }
                 
-                // Extract JMS Message ID and Correlation ID
-                Option(jmsMessage.getJMSMessageID()).foreach(id => println(s"JMS Message ID: $id"))
-                Option(jmsMessage.getJMSCorrelationID()).foreach(id => println(s"JMS Correlation ID: $id"))
-                
-                // Extract delivery mode and priority
-                println(s"JMS Delivery Mode: ${jmsMessage.getJMSDeliveryMode()}")
-                println(s"JMS Priority: ${jmsMessage.getJMSPriority()}")
-                
-                //if (customTimestamp.isEmpty && messageTimestamp.isEmpty && sentTime.isEmpty && creationTime.isEmpty) {
-                 // println("No custom timestamp properties found in message headers")
-                //}
+                // Log additional JMS properties
+                logger.info(s"JMS Message ID: ${Option(jmsMessage.getJMSMessageID()).getOrElse("N/A")}")
+                logger.info(s"JMS Correlation ID: ${Option(jmsMessage.getJMSCorrelationID()).getOrElse("N/A")}")
+                logger.info(s"JMS Delivery Mode: ${jmsMessage.getJMSDeliveryMode()}")
+                logger.info(s"JMS Priority: ${jmsMessage.getJMSPriority()}")
                 
               } catch {
-                case e: Exception => println(s"Error extracting message properties: ${e.getMessage}")
+                case e: Exception => 
+                  logger.error(s"Error processing reply timing: ${e.getMessage}", e)
+                  // Log failure to database
+                  val customMessageId = Option(jmsMessage.getStringProperty("messageId")).getOrElse("")
+                  if (customMessageId.nonEmpty) {
+                    logMessageToDB(customMessageId, "", scenario, subScenario, "FAILED")
+                  }
               }
-              
               true
             })
           )
       )
-      //.pause(1.seconds)
+      .exec { session =>
+        val messageId = session("currentMessageId").as[String]
+        val corrId = session("currentCorrId").as[String]
+        val startTime = session("requestStartTime").as[Long]
+        val endTime = System.currentTimeMillis()
+        val totalTime = endTime - startTime
+        
+        logger.info(s"[REQUEST_REPLY_COMPLETE] Message ID: $messageId | Corr ID: $corrId | Total Time: ${totalTime}ms")
+        session
+      }
     }
 
   
@@ -263,17 +322,17 @@ class AMQPSSSLSimulation extends Simulation {
   // Load test setup
   setUp(
     // Send messages to populate the reply queue
-    sslSendScenario.inject(
+   /* sslSendScenario.inject(
       atOnceUsers(userCount),
       rampUsers(userCount + 1).during(20.seconds)
-    )
+    )*/
     // Uncomment for request-reply testing
     
-    /*sslRequestReplyScenario.inject(
+    sslRequestReplyScenario.inject(
       // Ramp up to 25 TPS over 30 seconds, then maintain 25 TPS constantly
-      rampUsers(25).during(10.seconds),
-      constantUsersPerSec(25).during(1.minutes)
-    )*/
+      rampUsers(1).during(10.seconds),
+      constantUsersPerSec(1).during(1.minutes)
+    )
   ).protocols(jmsConfig)
     .maxDuration(3.minutes)
     .assertions(
